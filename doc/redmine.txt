@@ -1,0 +1,59 @@
+*redmine.txt*  fugitive-style Redmine UI for Neovim
+
+CONTENTS                                              *redmine-contents*
+
+  Setup ............................. |redmine-setup|
+  Commands .......................... |redmine-commands|
+  Buffers ........................... |redmine-buffers|
+  Configuration ..................... |redmine-config|
+  CLI dependency .................... |redmine-cli|
+
+==============================================================================
+SETUP                                                    *redmine-setup*
+
+  require('redmine').setup({})
+
+The plugin is a thin UI on top of the `redmine` CLI (package: redmine-core).
+The CLI must be on $PATH or set via `cli` option.
+
+==============================================================================
+COMMANDS                                              *redmine-commands*
+
+  :Rm           Open the issue detected from cwd, or fall back to inbox.
+  :Rm {id}      Open issue {id}.
+  :Rminbox      Open the inbox buffer.
+
+  M2 (placeholder, prints a not-yet message):
+  :Rmcomment :Rmpost :Rmstatus :Rmprogress :Rmlog :Rmassign :Rmfetch
+
+==============================================================================
+BUFFERS                                                *redmine-buffers*
+
+Inbox (filetype: redmine-inbox)
+  <CR>  open issue under cursor
+  r     refresh
+  f     cycle filter (open → all → mine → open)
+  /     built-in search
+  q     close
+
+Issue (filetype: redmine-issue)
+  r     refresh
+  R     hard refresh (no cache)
+  q     close
+  cc tt ss pp aa oo  M2 actions (placeholder in M1)
+
+==============================================================================
+CONFIGURATION                                          *redmine-config*
+
+See `lua/redmine/config.lua` for the full default table.
+
+==============================================================================
+CLI DEPENDENCY                                            *redmine-cli*
+
+The plugin shells out to `redmine` (package: redmine-core). Install:
+
+  pip install --user -e /path/to/redmine-core
+
+Authentication is via $REDMINE_URL / $REDMINE_API_KEY or
+~/.config/redmine-core/config.toml.
+ vim:tw=78:ts=8:ft=help:norl:

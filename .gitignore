@@ -1,0 +1,8 @@
+# Claude Code local working data (compose draft archive lives here)
+.claude/
+CLAUDE.md
+
+# Editor / OS
+*.swp
+*~
+.DS_Store

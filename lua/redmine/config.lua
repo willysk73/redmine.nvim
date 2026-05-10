@@ -1,0 +1,78 @@
+-- Default config and merge logic. Spec §5.
+local M = {}
+
+---@class RedmineConfig
+local defaults = {
+  cli = 'redmine',
+
+  keymaps = {
+    inbox    = '<leader>ri',
+    open     = '<leader>ro',
+    comment  = '<leader>rc',
+    status   = '<leader>rs',
+    timelog  = '<leader>rt',
+    assign   = '<leader>ra',
+
+    inbox_buffer = {
+      open    = '<CR>',
+      refresh = 'r',
+      filter  = 'f',
+      search  = '/',
+      close   = 'q',
+    },
+    issue_buffer = {
+      comment         = 'cc',
+      timelog         = 'tt',
+      status          = 'ss',
+      progress        = 'pp',
+      assign          = 'aa',
+      open_attachment = 'oo',
+      refresh         = 'r',
+      hard_refresh    = 'R',
+      close           = 'q',
+    },
+    compose_buffer = {
+      post            = '<leader>p',
+      post_no_confirm = '<leader>P',
+      discard         = '<leader>x',
+    },
+  },
+
+  compose = {
+    cutoff_pattern = '^<!%-%-.*━━━.*%-%->%s*$',
+    confirm_post   = true,
+    after_post     = 'archive',
+  },
+
+  inbox = {
+    default_filter = 'open',
+    columns        = { 'id', 'tracker', 'status', 'progress', 'subject' },
+  },
+
+  ui = {
+    open_strategy    = 'split',
+    compose_strategy = 'vsplit',
+    inbox_strategy   = 'edit',
+  },
+
+  notify = {
+    level = 'minimal',
+  },
+}
+
+local current
+
+function M.setup(user)
+  current = vim.tbl_deep_extend('force', vim.deepcopy(defaults), user or {})
+  return current
+end
+
+function M.get()
+  return current or vim.deepcopy(defaults)
+end
+
+function M.defaults()
+  return vim.deepcopy(defaults)
+end
+
+return M
