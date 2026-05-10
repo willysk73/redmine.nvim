@@ -7,6 +7,7 @@ CONTENTS                                              *redmine-contents*
   Buffers ........................... |redmine-buffers|
   Configuration ..................... |redmine-config|
   CLI dependency .................... |redmine-cli|
+  Health ............................ |redmine-health|
 
 ==============================================================================
 SETUP                                                    *redmine-setup*
@@ -14,46 +15,84 @@ SETUP                                                    *redmine-setup*
   require('redmine').setup({})
 
 The plugin is a thin UI on top of the `redmine` CLI (package: redmine-core).
-The CLI must be on $PATH or set via `cli` option.
+The CLI must be on $PATH (or set via the `cli` option).
 
 ==============================================================================
 COMMANDS                                              *redmine-commands*
 
-  :Rm           Open the issue detected from cwd, or fall back to inbox.
-  :Rm {id}      Open issue {id}.
-  :Rminbox      Open the inbox buffer.
+  :Rm                       Open issue detected from cwd / branch / .redmine.
+                            Falls back to inbox when nothing matches.
+  :Rm {id}                  Open issue {id}.
+  :Rminbox                  Open the inbox.
 
-  M2 (placeholder, prints a not-yet message):
-  :Rmcomment :Rmpost :Rmstatus :Rmprogress :Rmlog :Rmassign :Rmfetch
+  :Rmcomment [{id}]         Open a compose buffer for {id} (or detected).
+  :Rmpost                   Post the current compose buffer (single PUT,
+                            single journal). Empty body + frontmatter
+                            changes only is accepted.
+
+  :Rmstatus   [{id}] [name] Change status (picker if no arg).
+  :Rmprogress [{id}] [n]    Change done_ratio.
+  :Rmlog      [{id}] [h]    Log a time entry.
+  :Rmassign   [{id}] [usr]  Change assignee. Empty/none unassigns.
+  :Rmfetch    [{id}]        Refresh task.md (for AI tooling).
 
 ==============================================================================
 BUFFERS                                                *redmine-buffers*
 
-Inbox (filetype: redmine-inbox)
+Inbox (filetype: redmine-inbox)                        *redmine-inbox*
   <CR>  open issue under cursor
   r     refresh
   f     cycle filter (open → all → mine → open)
   /     built-in search
   q     close
 
-Issue (filetype: redmine-issue)
+Issue (filetype: redmine-issue)                        *redmine-issue*
   r     refresh
-  R     hard refresh (no cache)
+  R     hard refresh
   q     close
-  cc tt ss pp aa oo  M2 actions (placeholder in M1)
+  cc    open compose buffer for this issue
+  ss    change status (picker)
+  pp    change progress (picker)
+  aa    change assignee (picker)
+  tt    log time
+  oo    open attachment under cursor (`[#id]` line) via OS handler
+        (xdg-open on Linux, open on macOS, start on Windows)
+
+Compose (filetype: redmine-compose)                    *redmine-compose*
+  <leader>p   post (with confirm prompt; type `y` to proceed)
+  <leader>P   post without confirm
+  <leader>x   discard draft
 
 ==============================================================================
 CONFIGURATION                                          *redmine-config*
 
-See `lua/redmine/config.lua` for the full default table.
+See `lua/redmine/config.lua` for the full default table. Common options:
+
+  compose.confirm_post     true    `<leader>p` shows a confirm prompt
+  compose.after_post       'archive'  | 'delete' | 'keep'
+  ui.compose_strategy      'vsplit' | 'split' | 'tab' | 'edit'
 
 ==============================================================================
 CLI DEPENDENCY                                            *redmine-cli*
 
-The plugin shells out to `redmine` (package: redmine-core). Install:
+The plugin shells out to `redmine` (package: redmine-core).
 
-  pip install --user -e /path/to/redmine-core
+  pipx install redmine-core
 
-Authentication is via $REDMINE_URL / $REDMINE_API_KEY or
-~/.config/redmine-core/config.toml.
+Authentication: $REDMINE_URL / $REDMINE_API_KEY env vars (precedence)
+or ~/.config/redmine-core/config.toml.
+
+==============================================================================
+HEALTH                                                 *redmine-health*
+
+  :checkhealth redmine
+
+Verifies:
+  - `redmine` CLI is on $PATH and meets the minimum version.
+  - REDMINE_URL / REDMINE_API_KEY env vars aren't placeholder strings
+    (a frequent setup pitfall — copies of `.secrets.example` left
+    untouched).
+  - `redmine whoami` succeeds (auth ok). Distinguishes exit 11
+    (auth) from exit 1 (network / config) so the advice is useful.
+
  vim:tw=78:ts=8:ft=help:norl:
