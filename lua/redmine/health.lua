@@ -7,7 +7,7 @@ local h_warn  = h.warn  or h.report_warn
 local h_error = h.error or h.report_error
 local h_info  = h.info  or h.report_info
 
-local MIN_CLI_VERSION = '0.1.0'
+local MIN_CLI_VERSION = '0.1.1'
 
 local function parse_semver(s)
   local t = {}
