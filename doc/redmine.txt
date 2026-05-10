@@ -77,7 +77,7 @@ CLI DEPENDENCY                                            *redmine-cli*
 
 The plugin shells out to `redmine` (package: redmine-core).
 
-  pipx install redmine-core
+  uv tool install redmine-core    (or `pipx install redmine-core`)
 
 Authentication: $REDMINE_URL / $REDMINE_API_KEY env vars (precedence)
 or ~/.config/redmine-core/config.toml.

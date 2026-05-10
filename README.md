@@ -39,7 +39,9 @@ Run `:checkhealth redmine` after install — it verifies the CLI is on
 ## CLI dependency
 
 ```bash
-pipx install redmine-core    # recommended
+uv tool install redmine-core    # recommended (isolated, fastest)
+# or
+pipx install redmine-core
 # or
 pip install --user redmine-core
 ```
