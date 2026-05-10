@@ -48,6 +48,11 @@ function M.open_buffer(name, strategy)
   elseif strategy == 'edit' then vim.cmd('enew')
   else vim.cmd('split') end
   local bufnr = vim.api.nvim_get_current_buf()
+  -- These are virtual buffers (redmine://*) — disable swapfile *before*
+  -- `nvim_buf_set_name` so it doesn't probe disk for an existing swap and
+  -- fail with E325 when one happens to linger from a crashed nvim.
+  vim.api.nvim_set_option_value('swapfile', false, { buf = bufnr })
+  vim.api.nvim_set_option_value('buftype', 'nofile', { buf = bufnr })
   vim.api.nvim_buf_set_name(bufnr, name)
   return vim.api.nvim_get_current_win(), bufnr, true
 end
