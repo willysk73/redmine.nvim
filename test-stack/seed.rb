@@ -80,4 +80,26 @@ seeds.each do |s|
   puts "[seed] created issue ##{issue.id}: #{s[:subject]}"
 end
 
+# 7. One dummy attachment on issue #1, for the attachment-open test.
+issue1 = Issue.find_by(subject: '이메일 검증 함수 추가', project_id: project.id)
+if issue1 && !issue1.attachments.exists?(filename: 'sample.txt')
+  body = "redmine.nvim attachment fixture\nLine 2\n"
+  Dir.mktmpdir do |tmp|
+    path = File.join(tmp, 'sample.txt')
+    File.write(path, body)
+    File.open(path, 'rb') do |f|
+      Attachment.create!(
+        container: issue1,
+        file: f,
+        filename: 'sample.txt',
+        content_type: 'text/plain',
+        author: admin,
+      )
+    end
+  end
+  puts "[seed] attached sample.txt to ##{issue1.id}"
+elsif issue1
+  puts "[seed] sample.txt already attached to ##{issue1.id}"
+end
+
 puts "[seed] done"

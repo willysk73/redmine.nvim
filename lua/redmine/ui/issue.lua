@@ -45,8 +45,24 @@ local function bind_keys(bufnr, id)
   end, 'redmine: assign')
 
   util.bmap(bufnr, km.open_attachment, function()
-    vim.notify('redmine: 첨부 브라우저는 M3 에서 지원됩니다', vim.log.levels.INFO)
-  end, 'redmine: open attachment (M3)')
+    local line = vim.api.nvim_get_current_line()
+    local att_id = line:match('%[#(%d+)%]')
+    if not att_id then
+      vim.notify('redmine: 커서 라인에 첨부가 없습니다 (▸ 첨부 섹션의 줄에서 실행)',
+        vim.log.levels.WARN, { title = 'redmine' })
+      return
+    end
+    cli.run({ 'attachment', 'download', '--id', att_id, '--issue', tostring(id) }, {}, function(stdout)
+      local path = vim.trim(stdout or '')
+      if path == '' then return end
+      local opener = (vim.fn.has('mac') == 1 and 'open')
+                  or (vim.fn.has('win32') == 1 and 'cmd.exe')
+                  or 'xdg-open'
+      local argv = (opener == 'cmd.exe') and { 'cmd.exe', '/C', 'start', '', path } or { opener, path }
+      vim.system(argv, { detach = true })
+      vim.notify('redmine: 열기 → ' .. path, vim.log.levels.INFO, { title = 'redmine' })
+    end)
+  end, 'redmine: open attachment')
 end
 
 local function render(bufnr, id, opts)
