@@ -1,4 +1,8 @@
-# Claude Code local working data (compose draft archive lives here)
+# redmine.nvim runtime: per-worktree drafts/posted (not part of the plugin)
+.redmine/
+
+# Claude Code local data + personal workflow notes (off the plugin's path,
+# but keep ignored so accidental working directories never leak in)
 .claude/
 CLAUDE.md
 

@@ -109,7 +109,9 @@ local function post_buffer(bufnr, opts)
       if after == 'delete' then
         pcall(os.remove, file)
       elseif after == 'archive' then
-        local archive_dir = vim.fn.fnamemodify(file, ':h') .. '/posted'
+        -- Default layout: {worktree}/.redmine/{drafts,posted}/. file lives in
+        -- .../drafts/ → archive sits next to drafts under the same parent.
+        local archive_dir = vim.fn.fnamemodify(file, ':h:h') .. '/posted'
         vim.fn.mkdir(archive_dir, 'p')
         local target = archive_dir .. '/' .. vim.fn.fnamemodify(file, ':t')
         pcall(os.rename, file, target)
