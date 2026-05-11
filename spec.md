@@ -29,7 +29,7 @@
    `vim.system`으로 CLI를 호출하고 결과를 그린다.
 2. **포터블**: 호스트별 상태/멤버/우선순위는 동적으로 fetch. 하드코딩 없음.
 3. **파일 기반 통합**: Claude Code 등 외부 도구와의 상호작용은 합의된 파일
-   경로(`.claude/task.md`, `.claude/comment-draft.md` 등)를 통해서만.
+   경로(`.redmine/task.md`, `.redmine/comment-draft.md` 등)를 통해서만.
    경로는 CLI 설정으로 결정되며 플러그인은 경로를 모른다.
 4. **명시적 액션**: `:w`는 저장, post는 별도 키. "저장 = 발사" 같은 마법
    금지.
@@ -67,7 +67,7 @@
                   │  Redmine REST API    │
                   └──────────────────────┘
 
-         [파일 시스템: .claude/task.md, .claude/comment-draft.md 등]
+         [파일 시스템: .redmine/task.md, .redmine/comment-draft.md 등]
                   ↑                      ↑
                   │                      │
               CLI write              Compose 버퍼 read/write
@@ -75,7 +75,7 @@
 
 플러그인이 알아야 할 외부 인터페이스는 두 개뿐:
 - `rm` CLI 프로세스 호출 (5절)
-- `rm path` 가 알려주는 파일 경로 (8절)
+- `redmine path` 가 알려주는 파일 경로 (8절)
 
 ---
 
@@ -91,7 +91,7 @@
 
 ```lua
 {
-  'will/redmine.nvim',
+  'willysk73/redmine.nvim',
   cmd = {
     'Rm', 'Rminbox', 'Rmcomment', 'Rmpost',
     'Rmfetch', 'Rmstatus', 'Rmprogress', 'Rmlog', 'Rmassign',
@@ -238,7 +238,7 @@ require('redmine').setup({
 **filetype**: `redmine-inbox`
 **buftype**: `nofile`
 **modifiable**: 렌더 후 `false`
-**데이터 소스**: `rm list --json`
+**데이터 소스**: `redmine list --json`
 **렌더 예시**:
 
 ```
@@ -273,7 +273,7 @@ q close   r refresh   f filter   /  search   <CR> open
 **filetype**: `redmine-issue`
 **buftype**: `nofile`
 **modifiable**: `false`
-**데이터 소스**: `rm fetch <id> --format=display`
+**데이터 소스**: `redmine fetch <id> --format=display`
 **폴딩**: 섹션별 (`foldmethod=expr` 또는 `foldmethod=marker`)
 **렌더 예시**:
 
@@ -301,14 +301,14 @@ r refresh  R hard refresh  q 닫기
 
 | 키 | 동작 | CLI 호출 |
 |---|---|---|
-| `cc` | compose 버퍼 split | `rm path draft --id <id>` |
-| `tt` | 시간 기록 prompt → 적용 | `rm log <id> --hours <h>` |
-| `ss` | 상태 picker → 적용 | `rm meta statuses --issue <id>` → `rm update <id> --status <id>` |
-| `pp` | 진척 input → 적용 | `rm update <id> --progress <n>` |
-| `aa` | 담당 picker → 적용 | `rm meta members --project <id>` → `rm assign <id> --user <id>` |
+| `cc` | compose 버퍼 split | `redmine path draft --id <id>` |
+| `tt` | 시간 기록 prompt → 적용 | `redmine log <id> --hours <h>` |
+| `ss` | 상태 picker → 적용 | `redmine meta statuses --issue <id>` → `redmine update <id> --status <id>` |
+| `pp` | 진척 input → 적용 | `redmine update <id> --progress <n>` |
+| `aa` | 담당 picker → 적용 | `redmine meta members --project <id>` → `redmine assign <id> --user <id>` |
 | `oo` | 첨부/링크 브라우저 | `vim.ui.open(url)` |
-| `r` | refresh (캐시 사용) | `rm fetch <id>` |
-| `R` | hard refresh | `rm fetch <id> --no-cache` |
+| `r` | refresh (캐시 사용) | `redmine fetch <id>` |
+| `R` | hard refresh | `redmine fetch <id> --no-cache` |
 | `q` | 닫기 | — |
 
 **구현 노트**:
@@ -323,7 +323,7 @@ r refresh  R hard refresh  q 닫기
 
 **filetype**: `redmine-compose` (markdown 상속)
 **buftype**: 일반 (실제 파일)
-**파일 경로**: `rm path draft --id <id>`로 결정
+**파일 경로**: `redmine path draft --id <id>`로 결정
 **`:w` 동작**: 디스크 저장만. post 안 함.
 **post**: `<leader>p` 또는 `:Rmpost`
 
@@ -389,7 +389,7 @@ time:
       변경: status=완료, progress=100, time=4.5h
       [y/n]?"
 6. CLI 호출:
-     rm post --file <draft_path>
+     redmine post --file <draft_path>
    (CLI가 frontmatter 파싱·comment·status·progress·log_time 처리)
 7. 성공:
    - after_post=archive: 같은 디렉토리의 posted/ 로 이동
@@ -426,22 +426,22 @@ hi default link RedmineContext NonText
 
 | 커맨드 | 인자 | stdout | 비고 |
 |---|---|---|---|
-| `rm list` | `--json [--filter open]` | issue 배열 | inbox 버퍼용 |
-| `rm fetch <id>` | `--format=display` | 사람용 텍스트 | issue 버퍼 렌더용 |
-| `rm fetch <id>` | `--format=task` | task.md 형식 | `:Rmfetch` 용 |
-| `rm path <kind>` | `--id <id>`, kind=`task|draft|archive` | 절대 경로 1줄 | 경로 결정은 CLI 책임 |
-| `rm detect` | 없음 | issue ID 1줄 또는 빈 출력 | 현재 cwd 기준 |
-| `rm meta statuses` | `[--issue <id>]` | 상태 JSON 배열 | issue 지정 시 allowed만 |
-| `rm meta members` | `--project <id>` | 멤버 JSON 배열 | |
-| `rm meta priorities` | 없음 | 우선순위 JSON 배열 | M3+ |
-| `rm meta trackers` | 없음 | 트래커 JSON 배열 | M3+ |
-| `rm comment <id>` | `--body <text>` | 결과 JSON | 단순 코멘트 |
-| `rm post` | `--file <path>` | 결과 JSON | frontmatter 포함 종합 post |
-| `rm update <id>` | `--status <id>` 등 | 결과 JSON | 부분 업데이트 |
-| `rm assign <id>` | `--user <id>` | 결과 JSON | 빈 user는 할당 해제 |
-| `rm log <id>` | `--hours <h> [--comment <s>]` | 결과 JSON | 시간 기록 |
+| `redmine list` | `--json [--filter open]` | issue 배열 | inbox 버퍼용 |
+| `redmine fetch <id>` | `--format=display` | 사람용 텍스트 | issue 버퍼 렌더용 |
+| `redmine fetch <id>` | `--format=task` | task.md 형식 | `:Rmfetch` 용 |
+| `redmine path <kind>` | `--id <id>`, kind=`task|draft|archive` | 절대 경로 1줄 | 경로 결정은 CLI 책임 |
+| `redmine detect` | 없음 | issue ID 1줄 또는 빈 출력 | 현재 cwd 기준 |
+| `redmine meta statuses` | `[--issue <id>]` | 상태 JSON 배열 | issue 지정 시 allowed만 |
+| `redmine meta members` | `--project <id>` | 멤버 JSON 배열 | |
+| `redmine meta priorities` | 없음 | 우선순위 JSON 배열 | M3+ |
+| `redmine meta trackers` | 없음 | 트래커 JSON 배열 | M3+ |
+| `redmine comment <id>` | `--body <text>` | 결과 JSON | 단순 코멘트 |
+| `redmine post` | `--file <path>` | 결과 JSON | frontmatter 포함 종합 post |
+| `redmine update <id>` | `--status <id>` 등 | 결과 JSON | 부분 업데이트 |
+| `redmine assign <id>` | `--user <id>` | 결과 JSON | 빈 user는 할당 해제 |
+| `redmine log <id>` | `--hours <h> [--comment <s>]` | 결과 JSON | 시간 기록 |
 
-**JSON 응답 형태 예시** (`rm list --json`):
+**JSON 응답 형태 예시** (`redmine list --json`):
 
 ```json
 [
@@ -461,7 +461,7 @@ hi default link RedmineContext NonText
 **에러 처리**:
 - 종료 코드 0: 성공
 - 0이 아님: stderr를 `vim.notify(level=ERROR)`로 표시
-- 인증 실패: 별도 종료 코드(예: 11) → "인증 실패. `rm auth`로 토큰 확인" 안내
+- 인증 실패: 별도 종료 코드(예: 11) → "인증 실패. `redmine auth`로 토큰 확인" 안내
 
 ---
 
@@ -471,17 +471,17 @@ hi default link RedmineContext NonText
 
 | 파일 | 경로 결정 | 읽기 | 쓰기 |
 |---|---|---|---|
-| Draft | `rm path draft --id <id>` | compose 버퍼 열 때 | `:w` 시 디스크 저장 |
-| Task | `rm path task --id <id>` | 안 함 | 안 함 (CLI가 씀) |
-| Archive | `rm path archive --id <id>` | 안 함 | post 후 이동 시만 |
+| Draft | `redmine path draft --id <id>` | compose 버퍼 열 때 | `:w` 시 디스크 저장 |
+| Task | `redmine path task --id <id>` | 안 함 | 안 함 (CLI가 씀) |
+| Archive | `redmine path archive --id <id>` | 안 함 | post 후 이동 시만 |
 
 **경로 형식 (CLI 설정 예)**:
 
 ```toml
 [paths]
-task_file   = "{worktree}/.claude/task.md"
-draft_file  = "{worktree}/.claude/comment-draft.md"
-archive_dir = "{worktree}/.claude/posted"
+task_file   = "{worktree}/.redmine/task.md"
+draft_file  = "{worktree}/.redmine/drafts/comment-draft-{id}.md"
+archive_dir = "{worktree}/.redmine/posted"
 ```
 
 플러그인은 `{worktree}` 등의 변수를 직접 해석하지 않는다.
@@ -490,7 +490,7 @@ archive_dir = "{worktree}/.claude/posted"
 
 ## 10. ID 감지
 
-`rm detect` 호출 결과를 사용. 플러그인 내부 fallback 없음.
+`redmine detect` 호출 결과를 사용. 플러그인 내부 fallback 없음.
 
 ```lua
 -- lua/redmine/detect.lua
@@ -562,7 +562,7 @@ return M
 | 상황 | 처리 |
 |---|---|
 | CLI 종료 코드 ≠ 0 | `vim.notify(stderr, ERROR)` |
-| 인증 실패 (코드 11) | "인증 실패. `rm auth` 확인" |
+| 인증 실패 (코드 11) | "인증 실패. `redmine auth` 확인" |
 | JSON 파싱 실패 | `vim.notify('JSON 파싱 실패', ERROR)` + raw 출력 보존 |
 | 빈 응답 | "데이터 없음" notify |
 | 네트워크 타임아웃 | CLI가 처리. 플러그인은 stderr 그대로 표시 |
@@ -585,19 +585,20 @@ redmine.nvim/
 │       ├── config.lua        -- 기본값 + merge
 │       ├── cli.lua           -- vim.system 래퍼, JSON 파싱
 │       ├── commands.lua      -- :Rm* 등록
-│       ├── detect.lua        -- ID 감지 (rm detect 래퍼)
+│       ├── actions.lua       -- :Rmstatus/:Rmprogress/:Rmlog/:Rmassign 액션
+│       ├── detect.lua        -- ID 감지 (`redmine detect` 래퍼)
+│       ├── frontmatter.lua   -- YAML 파싱 (post 전 분리, Lua 측)
+│       ├── health.lua        -- :checkhealth redmine
+│       ├── picker.lua        -- vim.ui.select 래퍼
 │       ├── ui/
 │       │   ├── inbox.lua     -- inbox 버퍼
 │       │   ├── issue.lua     -- issue 상세 버퍼
 │       │   └── compose.lua   -- compose 버퍼
-│       ├── frontmatter.lua   -- YAML 파싱 (post 전 분리)
 │       └── util.lua
 ├── plugin/
 │   └── redmine.lua           -- 명령 lazy 등록
 ├── ftdetect/
-│   ├── redmine-inbox.lua
-│   ├── redmine-issue.lua
-│   └── redmine-compose.lua
+│   └── redmine.lua           -- redmine://* + .redmine/drafts/* 패턴
 ├── syntax/
 │   ├── redmine-inbox.vim
 │   ├── redmine-issue.vim
@@ -605,10 +606,15 @@ redmine.nvim/
 ├── doc/
 │   └── redmine.txt
 ├── tests/
-│   ├── frontmatter_spec.lua
-│   ├── compose_strip_spec.lua
-│   └── config_spec.lua
-└── README.md
+│   ├── minimal.lua           -- 헤드리스 init (E2E용)
+│   └── run_e2e.lua           -- Docker stack 대상 E2E
+├── test-stack/
+│   ├── docker-compose.yml    -- Redmine 5.1 + Postgres 16 (port 13080)
+│   └── seed.rb               -- idempotent seeder (admin token, demo project, fixtures, sample.txt 첨부)
+├── CHANGELOG.md
+├── LICENSE
+├── README.md
+└── spec.md
 ```
 
 ---
@@ -643,7 +649,7 @@ require('redmine').current_issue_id(callback)  -- async, callback(id|nil)
 - inbox 버퍼 (읽기 전용, `<CR>`/`q`)
 - issue 버퍼 (읽기 전용, `q`)
 - 비동기 CLI 래퍼
-- ID 감지 (`rm detect`)
+- ID 감지 (`redmine detect`)
 - 기본 syntax
 
 ### M2 — 코멘트 워크플로우 (2~3일)
@@ -652,7 +658,7 @@ require('redmine').current_issue_id(callback)  -- async, callback(id|nil)
 
 - compose 버퍼 (`:Rmcomment`)
 - frontmatter 파서
-- `<leader>p` post 동작 (cutoff strip → CLI `rm post`)
+- `<leader>p` post 동작 (cutoff strip → CLI `redmine post`)
 - `<leader>x` 폐기
 - compose syntax (cutoff 디밍)
 - `:Rmstatus` (picker, allowed_statuses 사용)
@@ -724,7 +730,7 @@ PATH="$PWD/tests/mock-bin:$PATH" \
 | Issue | `ss` | 상태 변경 |
 | Issue | `pp` | 진척률 변경 |
 | Issue | `aa` | 담당자 변경 |
-| Issue | `oo` | 첨부/링크 브라우저 |
+| Issue | `oo` | 커서 라인의 첨부 다운로드 후 OS 핸들러로 열기 (xdg-open / open / start) |
 | Issue | `r` | refresh |
 | Issue | `R` | hard refresh |
 | Issue | `q` | 닫기 |
@@ -736,18 +742,22 @@ PATH="$PWD/tests/mock-bin:$PATH" \
 
 ## 부록 B — 의존하는 CLI 인터페이스 요약
 
-플러그인이 작동하려면 `rm` CLI가 다음을 충족해야 한다:
+플러그인이 작동하려면 `redmine` CLI(`redmine-core` 패키지, `redmine-core >= 0.1.1`)가 다음을 충족해야 한다:
 
-1. **`rm detect`** — cwd 기준 issue ID stdout 1줄, 없으면 빈 출력 + 종료 코드 1
-2. **`rm path <kind> --id <id>`** — kind=`draft|task|archive`, 절대 경로 1줄
-3. **`rm list --json [--filter <f>]`** — issue 배열 JSON
-4. **`rm fetch <id> --format=<display|task>`** — 텍스트 또는 task.md
-5. **`rm meta statuses [--issue <id>] --json`** — `[{id, name}]`
-6. **`rm meta members --project <id> --json`** — `[{id, name}]`
-7. **`rm post --file <path>`** — frontmatter 파일 받아 종합 처리
-8. **`rm update <id> --status|--progress <v>`** — 부분 업데이트
-9. **`rm assign <id> --user <id>`** — 빈 user는 해제
-10. **`rm log <id> --hours <h>`** — 시간 기록
+1. **`redmine --version`** — `redmine-core <semver>` 1줄 (`:checkhealth` 가 사용)
+2. **`redmine whoami`** — 현재 사용자 1줄. 인증 검증용
+3. **`redmine detect`** — cwd 기준 issue ID stdout 1줄, 없으면 빈 출력 + 종료 코드 1
+4. **`redmine path <kind> --id <id>`** — kind=`draft|task|archive`, 절대 경로 1줄
+5. **`redmine list --json [--filter <f>]`** — issue 배열 JSON
+6. **`redmine fetch <id> --format=<display|task|json>`** — 텍스트 / task.md / 원본 JSON
+7. **`redmine meta statuses [--issue <id>] --json`** — `[{id, name, is_closed}]`
+8. **`redmine meta members --project <id> --json`** — `[{id, name}]`
+9. **`redmine post --file <path>`** — frontmatter 파일 받아 종합 처리 (단일 PUT, 단일 journal)
+10. **`redmine update <id> --status|--progress <v>`** — 부분 업데이트
+11. **`redmine assign <id> --user <id>`** — 빈 user 또는 `none`은 해제
+12. **`redmine log <id> --hours <h> [--activity <id>] [--comment <s>]`** — 시간 기록
+13. **`redmine suggest assignee --id <id>`** — 직전 댓글 작성자, 없으면 일감 작성자 (compose buffer assignee 기본값)
+14. **`redmine attachment download --id <attachment_id> [--issue <issue_id>] [--out <path>] [--force]`** — 첨부 다운로드 후 절대 경로 출력 (idempotent — 이미 있으면 재다운 안 함)
 
 각 명령의 `--json` 옵션은 stdout을 머신 파서블 JSON으로 출력한다.
 인증 실패 시 종료 코드 11.
