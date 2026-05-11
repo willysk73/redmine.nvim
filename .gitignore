@@ -6,6 +6,11 @@
 .claude/
 CLAUDE.md
 
+# ccx supervisor runtime (briefs in .ccx/tasks/ ARE versioned;
+# worker logs and decision audit are not)
+.ccx/workers/
+.ccx/supervisor-audit/
+
 # Editor / OS
 *.swp
 *~
