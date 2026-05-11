@@ -14,7 +14,16 @@ local state = {
   line_to_id = {},
 }
 
-local FILTER_CYCLE = { open = 'all', all = 'mine', mine = 'open' }
+-- `closed` is intentionally absent: the sibling `redmine` CLI only
+-- accepts --filter open|mine|all today. T-1 supervisor decision (a)
+-- kept the plugin in lockstep with the CLI rather than inventing a
+-- new surface.
+M.FILTERS = { 'open', 'all', 'mine' }
+
+function M.is_valid_filter(value)
+  for _, v in ipairs(M.FILTERS) do if v == value then return true end end
+  return false
+end
 
 local function format_lines(items, filter)
   local lines = {}
@@ -90,14 +99,22 @@ local function bind_keys(bufnr)
   end, 'redmine: open issue under cursor')
 
   util.bmap(bufnr, km.filter, function()
-    state.filter = FILTER_CYCLE[state.filter] or 'open'
-    render(bufnr)
-  end, 'redmine: cycle filter')
+    local choices = { 'open', 'all', 'mine', 'cancel' }
+    vim.ui.select(choices, {
+      prompt = 'Inbox 필터 선택',
+      format_item = function(it) return it end,
+    }, function(choice)
+      if not choice or choice == 'cancel' then return end
+      state.filter = choice
+      render(bufnr)
+    end)
+  end, 'redmine: pick filter')
 
   -- `/` is left as-is (built-in search) per spec.
 end
 
-function M.open()
+function M.open(filter)
+  if filter then state.filter = filter end
   local strategy = config.get().ui.inbox_strategy or 'edit'
   local _, bufnr, created = util.open_buffer(BUF_NAME, strategy)
   state.bufnr = bufnr

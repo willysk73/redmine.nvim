@@ -50,6 +50,18 @@ do
   record('inbox footer present', has_footer)
 end
 
+-- ---------- Test 1b: :Rminbox mine applies filter from arg ----------
+do
+  vim.cmd('Rminbox mine')
+  local ok = wait_until(function()
+    local b = vim.fn.bufnr('redmine://inbox')
+    if b == -1 then return false end
+    local h = (vim.api.nvim_buf_get_lines(b, 0, 1, false)[1]) or ''
+    return h:match('필터:%s*mine') ~= nil
+  end, 8000)
+  record(':Rminbox mine applies filter from arg', ok)
+end
+
 -- ---------- Test 2: :Rm 1 renders issue body ------------------
 do
   vim.cmd('Rm 1')
