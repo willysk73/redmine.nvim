@@ -49,12 +49,15 @@ local function format_lines(items, filter)
   return lines
 end
 
-local function render(bufnr)
+local function render(bufnr, opts)
+  opts = opts or {}
   local filter = state.filter or config.get().inbox.default_filter or 'open'
   state.filter = filter
   util.set_lines(bufnr, { '⏳ Fetching...' })
 
-  cli.run_json({ 'list', '--filter', filter }, function(items)
+  cli.run_json({ 'list', '--filter', filter },
+    { cache = { key = 'inbox', hard = opts.hard or false } },
+    function(items)
     if not vim.api.nvim_buf_is_valid(bufnr) then return end
     items = items or {}
     util.set_lines(bufnr, format_lines(items, filter))
@@ -88,6 +91,10 @@ local function bind_keys(bufnr)
   util.bmap(bufnr, km.refresh, function()
     render(bufnr)
   end, 'redmine: refresh inbox')
+
+  util.bmap(bufnr, km.hard_refresh, function()
+    render(bufnr, { hard = true })
+  end, 'redmine: hard refresh inbox')
 
   util.bmap(bufnr, km.open, function()
     local id = id_under_cursor()

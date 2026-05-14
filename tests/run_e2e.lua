@@ -482,6 +482,73 @@ do
     ('foldclosed=%s'):format(tostring(attach_after_zR)))
 end
 
+-- ---------- Test 10: CLI cache produces a hit on repeated issue open ----------
+do
+  -- Two `:Rm 1` opens within the default issue_ttl (60s) should be served
+  -- by the in-memory cache on the second go. We close the buffer between
+  -- opens so the second open is forced to re-render via the cache layer
+  -- rather than skipping the fetch entirely.
+  local cli_mod = require('redmine.cli')
+
+  -- Snapshot the existing buffer (Test 8/9 left one). The first :Rm 1 here
+  -- may either hit cache (if recent) or miss; either way we want at least
+  -- one fresh open after the snapshot to drive a hit.
+  pcall(vim.api.nvim_buf_delete, vim.fn.bufnr('redmine://issue/1'), { force = true })
+  local before = cli_mod.cache_stats()
+
+  vim.cmd('Rm 1')
+  local opened1 = wait_until(function()
+    return vim.fn.bufnr('redmine://issue/1') ~= -1
+       and #vim.api.nvim_buf_get_lines(vim.fn.bufnr('redmine://issue/1'), 0, -1, false) > 1
+  end, 8000)
+  record('cache test: first :Rm 1 opens issue', opened1)
+
+  pcall(vim.api.nvim_buf_delete, vim.fn.bufnr('redmine://issue/1'), { force = true })
+
+  vim.cmd('Rm 1')
+  local opened2 = wait_until(function()
+    return vim.fn.bufnr('redmine://issue/1') ~= -1
+       and #vim.api.nvim_buf_get_lines(vim.fn.bufnr('redmine://issue/1'), 0, -1, false) > 1
+  end, 8000)
+  record('cache test: second :Rm 1 opens issue', opened2)
+
+  local after = cli_mod.cache_stats()
+  record('cache produces at least 1 hit on repeated open',
+    (after.hits - before.hits) >= 1,
+    ('Δhits=%d Δmisses=%d (before %d/%d after %d/%d)'):format(
+      after.hits - before.hits, after.misses - before.misses,
+      before.hits, before.misses, after.hits, after.misses))
+end
+
+-- ---------- Test 11: `R` (hard refresh) bypasses cache ----------
+do
+  -- Ensure issue #1 is loaded so its buffer + keymap exist.
+  local b = vim.fn.bufnr('redmine://issue/1')
+  if b == -1 then
+    vim.cmd('Rm 1')
+    wait_until(function() return vim.fn.bufnr('redmine://issue/1') ~= -1 end, 8000)
+    b = vim.fn.bufnr('redmine://issue/1')
+  end
+
+  local cli_mod = require('redmine.cli')
+  local before = cli_mod.cache_stats()
+
+  -- Trigger a hard refresh directly via the module entry point. We can't
+  -- easily fire keymaps headlessly without a focused window, but this
+  -- exercises the same code path the `R` keymap drives.
+  require('redmine.ui.issue').refresh(1, { hard = true })
+
+  local saw_miss = wait_until(function()
+    local s = cli_mod.cache_stats()
+    return (s.misses - before.misses) >= 1
+  end, 8000)
+  record('R (hard refresh) bypasses cache → miss recorded', saw_miss,
+    ('Δmisses=%d'):format(cli_mod.cache_stats().misses - before.misses))
+  record('R hard refresh did NOT increment hits',
+    (cli_mod.cache_stats().hits - before.hits) == 0,
+    ('Δhits=%d'):format(cli_mod.cache_stats().hits - before.hits))
+end
+
 -- ---------- Report ------------------
 local pass = 0
 for _, r in ipairs(results) do if r.ok then pass = pass + 1 end end

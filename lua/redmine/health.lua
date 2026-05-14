@@ -81,6 +81,15 @@ function M.check()
     h_ok(('REDMINE_API_KEY set (%d chars)'):format(#key))
   end
 
+  local cache_cfg = (require('redmine.config').get().cache) or {}
+  if cache_cfg.enabled then
+    h_ok(('cache: enabled (inbox_ttl=%ds, issue_ttl=%ds)'):format(
+      math.floor((cache_cfg.inbox_ttl_ms or 0) / 1000),
+      math.floor((cache_cfg.issue_ttl_ms or 0) / 1000)))
+  else
+    h_ok('cache: disabled')
+  end
+
   local rc2, out2, err2 = run({ 'redmine', 'whoami' }, 5000)
   if rc2 == 0 then
     h_ok('whoami → ' .. out2)

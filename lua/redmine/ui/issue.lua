@@ -93,7 +93,7 @@ local function bind_keys(bufnr, id)
   end, 'redmine: close issue')
 
   util.bmap(bufnr, km.refresh, function()
-    M.refresh(id)
+    M.refresh(id, { hard = false })
   end, 'redmine: refresh issue')
 
   util.bmap(bufnr, km.hard_refresh, function()
@@ -145,10 +145,10 @@ local function render(bufnr, id, opts)
   opts = opts or {}
   util.set_lines(bufnr, { ('⏳ Fetching #%d ...'):format(id) })
 
-  -- The CLI has no cache layer yet (M3+); `R` and `r` are equivalent today.
   local args = { 'fetch', tostring(id), '--format=display' }
+  local run_opts = { cache = { key = 'issue', hard = opts.hard or false } }
 
-  cli.run(args, {}, function(stdout)
+  cli.run(args, run_opts, function(stdout)
     if not vim.api.nvim_buf_is_valid(bufnr) then return end
     local lines = vim.split(stdout, '\n', { plain = true })
     -- Trim a single trailing blank line if present (CLI emits a final \n).
@@ -171,7 +171,12 @@ function M.open(id)
   render(bufnr, id)
 end
 
+-- External callers (compose.lua, actions.lua) call refresh(id) with no
+-- opts after mutating the issue; in that case default to a hard refresh so
+-- post-mutation views never serve stale cache. The `r` keymap above
+-- explicitly passes {hard=false} to opt back into the cache.
 function M.refresh(id, opts)
+  if opts == nil then opts = { hard = true } end
   local name = buf_name(id)
   local bufnr = vim.fn.bufnr(name)
   if bufnr == -1 then return end
