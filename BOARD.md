@@ -56,15 +56,15 @@ ccx convention.
       - syntax/redmine-issue.vim
       - tests/run_e2e.lua
     exclude: []
-  status: pending
+  status: assigned
   priority: high
   depends_on: []
   brief: .ccx/tasks/T-2.md
-  attempts: 0
-  worktree: null
-  branch: null
+  attempts: 1
+  worktree: /home/will/Repositories/redmine.nvim-T-2
+  branch: ccx/T-2
   worker_pid: null
-  started_at: null
+  started_at: "2026-05-14T12:32:28Z"
   finished_at: null
   exit_status: null
   notes: |
