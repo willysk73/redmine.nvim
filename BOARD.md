@@ -35,7 +35,7 @@ ccx convention.
       - lua/redmine/commands.lua
       - tests/run_e2e.lua
     exclude: []
-  status: assigned
+  status: merged
   priority: high
   depends_on: []
   brief: .ccx/tasks/T-1.md
@@ -44,8 +44,8 @@ ccx convention.
   branch: ccx/T-1
   worker_pid: null
   started_at: "2026-05-11T14:02:08Z"
-  finished_at: null
-  exit_status: null
+  finished_at: "2026-05-11T14:10:52Z"
+  exit_status: approved
   notes: |
 
 - id: T-2
@@ -56,7 +56,7 @@ ccx convention.
       - syntax/redmine-issue.vim
       - tests/run_e2e.lua
     exclude: []
-  status: assigned
+  status: merged
   priority: high
   depends_on: []
   brief: .ccx/tasks/T-2.md
@@ -65,8 +65,8 @@ ccx convention.
   branch: ccx/T-2
   worker_pid: null
   started_at: "2026-05-14T12:32:28Z"
-  finished_at: null
-  exit_status: null
+  finished_at: "2026-05-14T13:05:57Z"
+  exit_status: approved
   notes: |
 
 - id: T-3
@@ -79,7 +79,7 @@ ccx convention.
       - lua/redmine/config.lua
       - tests/run_e2e.lua
     exclude: []
-  status: assigned
+  status: merged
   priority: normal
   depends_on: [T-1, T-2]
   brief: .ccx/tasks/T-3.md
@@ -88,7 +88,7 @@ ccx convention.
   branch: ccx/T-3
   worker_pid: null
   started_at: "2026-05-14T13:06:32Z"
-  finished_at: null
-  exit_status: null
+  finished_at: "2026-05-14T13:45:23Z"
+  exit_status: approved
   notes: |
 ```
