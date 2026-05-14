@@ -14,11 +14,12 @@ local defaults = {
     assign   = '<leader>ra',
 
     inbox_buffer = {
-      open    = '<CR>',
-      refresh = 'r',
-      filter  = 'f',
-      search  = '/',
-      close   = 'q',
+      open         = '<CR>',
+      refresh      = 'r',
+      hard_refresh = 'R',
+      filter       = 'f',
+      search       = '/',
+      close        = 'q',
     },
     issue_buffer = {
       comment         = 'cc',
@@ -57,6 +58,12 @@ local defaults = {
 
   notify = {
     level = 'minimal',
+  },
+
+  cache = {
+    enabled      = true,
+    inbox_ttl_ms = 30 * 1000,
+    issue_ttl_ms = 60 * 1000,
   },
 }
 
