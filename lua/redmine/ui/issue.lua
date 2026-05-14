@@ -9,6 +9,82 @@ local function buf_name(id)
   return ('redmine://issue/%d'):format(id)
 end
 
+-- Section headers in CLI render output start with `▾` (open by default)
+-- or `▸` (closed by default). Return `>1` on those lines and on line 1
+-- (the pre-section header block) so each section becomes its own
+-- top-level fold; every other line returns `1` so it joins the current
+-- fold.
+function M.foldexpr(lnum)
+  local line = vim.fn.getline(lnum)
+  if line:match('^▾ ') or line:match('^▸ ') then
+    return '>1'
+  end
+  if lnum == 1 then
+    return '>1'
+  end
+  return '1'
+end
+
+-- Show the raw section header. The CLI title already carries the count
+-- (e.g. `▾ 코멘트 (7)`), so default `+-- N lines:` boilerplate is noise.
+function M.foldtext()
+  return vim.fn.getline(vim.v.foldstart)
+end
+
+local folding_group = vim.api.nvim_create_augroup('redmine.ui.issue.folding', { clear = true })
+
+-- FileType: initial filetype set during lock_buffer. Resets foldlevel
+-- so the brand-new window opens with sections visible (`▾` open).
+-- BufWinEnter: any later window display of an existing issue buffer
+-- (split, `:b redmine://issue/N`, tab switch). Sets only the fold
+-- machinery — NOT foldlevel — so the user's manual zM/zm state survives
+-- ordinary window switches. Tradeoff: `:b redmine://issue/N` in a
+-- window whose previous buffer was zM'd will inherit that foldlevel
+-- and show sections closed; the user can press `r` to refresh, which
+-- restores defaults via apply_initial_folds. Brief Decisions accept
+-- "refresh re-applies defaults" and forbid extra bookkeeping for
+-- fold-state preservation.
+vim.api.nvim_create_autocmd('FileType', {
+  group = folding_group,
+  pattern = 'redmine-issue',
+  callback = function()
+    vim.opt_local.foldmethod = 'expr'
+    vim.opt_local.foldexpr = 'v:lua.require("redmine.ui.issue").foldexpr(v:lnum)'
+    vim.opt_local.foldtext = 'v:lua.require("redmine.ui.issue").foldtext()'
+    vim.opt_local.foldlevel = 99
+  end,
+})
+vim.api.nvim_create_autocmd('BufWinEnter', {
+  group = folding_group,
+  callback = function(args)
+    if vim.bo[args.buf].filetype ~= 'redmine-issue' then return end
+    vim.opt_local.foldmethod = 'expr'
+    vim.opt_local.foldexpr = 'v:lua.require("redmine.ui.issue").foldexpr(v:lnum)'
+    vim.opt_local.foldtext = 'v:lua.require("redmine.ui.issue").foldtext()'
+  end,
+})
+
+-- Reset fold state after a render: open everything (foldlevel high),
+-- then close every section whose header starts with `▸`. Re-applied on
+-- every render so `r`/`R` deliberately restore defaults — preserving
+-- per-section state across refreshes was a non-goal (see T-2 brief).
+-- Iterates real windows showing the buffer (across all tabpages) so the
+-- compose→refresh path, which fires while the issue buffer is not
+-- current, still applies window-local fold state to the correct window
+-- rather than to a scratch autocmd window.
+local function apply_initial_folds(bufnr, lines)
+  for _, winid in ipairs(vim.fn.win_findbuf(bufnr)) do
+    vim.api.nvim_win_call(winid, function()
+      vim.wo.foldlevel = 99
+      for lnum, line in ipairs(lines) do
+        if line:match('^▸ ') then
+          pcall(vim.cmd, lnum .. 'foldclose')
+        end
+      end
+    end)
+  end
+end
+
 local function bind_keys(bufnr, id)
   local km = config.get().keymaps.issue_buffer or {}
 
@@ -80,6 +156,7 @@ local function render(bufnr, id, opts)
       table.remove(lines)
     end
     util.set_lines(bufnr, lines)
+    apply_initial_folds(bufnr, lines)
   end)
 end
 

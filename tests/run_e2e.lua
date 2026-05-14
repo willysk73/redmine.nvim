@@ -411,6 +411,77 @@ do
   end
 end
 
+-- ---------- Test 9: issue buffer applies folds to sections ----------
+do
+  -- Force a fresh render so the buffer reflects current fold logic.
+  pcall(vim.api.nvim_buf_delete, vim.fn.bufnr('redmine://issue/1'), { force = true })
+  vim.cmd('Rm 1')
+  local rendered = wait_until(function()
+    local b = vim.fn.bufnr('redmine://issue/1')
+    if b == -1 then return false end
+    local ls = vim.api.nvim_buf_get_lines(b, 0, -1, false)
+    for _, ln in ipairs(ls) do
+      if ln:match('^▸ 첨부') or ln:match('^▾ 첨부') then return true end
+    end
+    return false
+  end, 8000)
+  record('issue #1 attachment section header rendered', rendered)
+
+  local b = vim.fn.bufnr('redmine://issue/1')
+  local lines = vim.api.nvim_buf_get_lines(b, 0, -1, false)
+
+  -- Lua char classes like `[▾▸]` operate on raw bytes, not multibyte
+  -- chars (each glyph is 3 UTF-8 bytes), so explicitly OR the two
+  -- literal prefixes.
+  local lnum_attach, lnum_body
+  for i, ln in ipairs(lines) do
+    if not lnum_attach and (ln:match('^▾ 첨부') or ln:match('^▸ 첨부')) then lnum_attach = i end
+    if not lnum_body   and ln:match('^▾ 본문') then lnum_body = i end
+  end
+
+  local attach_fold_start
+  vim.api.nvim_buf_call(b, function()
+    attach_fold_start = lnum_attach and vim.fn.foldclosed(lnum_attach) or -2
+  end)
+  record('첨부 section is closed by default',
+    lnum_attach ~= nil and attach_fold_start ~= -1,
+    ('lnum=%s foldclosed=%s'):format(tostring(lnum_attach), tostring(attach_fold_start)))
+
+  local body_fold_start
+  vim.api.nvim_buf_call(b, function()
+    body_fold_start = lnum_body and vim.fn.foldclosed(lnum_body) or -2
+  end)
+  record('본문 section is open by default',
+    lnum_body ~= nil and body_fold_start == -1,
+    ('lnum=%s foldclosed=%s'):format(tostring(lnum_body), tostring(body_fold_start)))
+
+  local winid = vim.fn.bufwinid(b)
+  local fm = winid ~= -1 and vim.api.nvim_get_option_value('foldmethod', { win = winid }) or '?'
+  record('foldmethod=expr on issue window', fm == 'expr', ('got %s'):format(fm))
+
+  -- zM closes every section, zR re-opens them — verifies standard fold
+  -- keymaps work without extra binding.
+  vim.api.nvim_buf_call(b, function()
+    vim.cmd('normal! zM')
+  end)
+  local body_after_zM
+  vim.api.nvim_buf_call(b, function()
+    body_after_zM = lnum_body and vim.fn.foldclosed(lnum_body) or -2
+  end)
+  record('zM closes 본문 section', lnum_body and body_after_zM ~= -1,
+    ('foldclosed=%s'):format(tostring(body_after_zM)))
+
+  vim.api.nvim_buf_call(b, function()
+    vim.cmd('normal! zR')
+  end)
+  local attach_after_zR
+  vim.api.nvim_buf_call(b, function()
+    attach_after_zR = lnum_attach and vim.fn.foldclosed(lnum_attach) or -2
+  end)
+  record('zR opens 첨부 section', lnum_attach and attach_after_zR == -1,
+    ('foldclosed=%s'):format(tostring(attach_after_zR)))
+end
+
 -- ---------- Report ------------------
 local pass = 0
 for _, r in ipairs(results) do if r.ok then pass = pass + 1 end end
