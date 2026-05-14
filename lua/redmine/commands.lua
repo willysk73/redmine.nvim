@@ -1,8 +1,30 @@
 -- Register :Rm* commands. Spec §6.
 local M = {}
 
-local function open_inbox()
-  require('redmine.ui.inbox').open()
+local function open_inbox(args)
+  local inbox = require('redmine.ui.inbox')
+  local arg = args and args.args or ''
+  if arg ~= '' then
+    if not inbox.is_valid_filter(arg) then
+      vim.notify(
+        ('redmine: Rminbox 필터는 %s 중 하나여야 합니다 (받은 값: %s)')
+          :format(table.concat(inbox.FILTERS, '|'), arg),
+        vim.log.levels.ERROR)
+      return
+    end
+    inbox.open(arg)
+    return
+  end
+  inbox.open()
+end
+
+local function complete_inbox(arg_lead)
+  local inbox = require('redmine.ui.inbox')
+  local matches = {}
+  for _, v in ipairs(inbox.FILTERS) do
+    if v:sub(1, #arg_lead) == arg_lead then table.insert(matches, v) end
+  end
+  return matches
 end
 
 local function open_issue(id)
@@ -48,7 +70,11 @@ end
 
 function M.register()
   vim.api.nvim_create_user_command('Rm', rm_command, { nargs = '?', desc = 'redmine: open issue or inbox' })
-  vim.api.nvim_create_user_command('Rminbox', open_inbox, { desc = 'redmine: open inbox' })
+  vim.api.nvim_create_user_command('Rminbox', open_inbox, {
+    nargs = '?',
+    complete = complete_inbox,
+    desc = 'redmine: open inbox (filter: open|all|mine)',
+  })
 
   vim.api.nvim_create_user_command('Rmcomment', function(args)
     with_id(args, 'Rmcomment', function(id) require('redmine.ui.compose').open(id) end)
