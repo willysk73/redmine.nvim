@@ -2,24 +2,27 @@
 
 ## Direction
 
-**Current milestone: M3 polish.** M1 + M2 are shipped; the plugin and
-its sibling CLI (`redmine-core 0.1.1`) live on PyPI / GitHub. This
-milestone tightens UX in three independent areas — inbox filtering,
-issue-buffer folding, and a cache layer for `r` vs `R`.
+**Current milestone: M4 (spec §15 — 선택사항).** M1+M2+M3 shipped on
+`main`. M4 tightens the compose-and-post workflow in two independent
+ways: making the compose scaffold **discoverable** (status / progress /
+assignee hints inside the buffer), and surfacing the existing
+`.redmine/drafts/` staging area as a **first-class buffer** so the
+plugin behaves more like fugitive (`:Rm` ≈ `:Git`).
 
 Constraints workers should respect:
 
-- **Plugin-only changes.** No CLI subcommand additions or breaking
-  changes to existing CLI flags. If a task seems to need new CLI
-  surface, surface it as a `chat_ask` instead of inventing one.
+- **Plugin-only changes.** No `redmine-core` subcommand additions or
+  breaking flag changes. CLI is still `0.1.1`. If a task seems to need
+  new CLI surface, surface it as a `chat_ask` instead of inventing one.
 - **CLAUDE.md rules apply.** Minimum code, surgical edits, no
   speculative features. Don't refactor adjacent code.
 - **E2E must stay green** (`tests/run_e2e.lua` against the Docker
-  stack at `test-stack/`, currently 33/33). Each task adds tests
-  for its own surface; existing tests should not regress.
+  stack at `test-stack/`, currently **45/45**). Each task adds tests
+  for its own surface; existing tests must not regress.
 - **`Setup` shape unchanged.** `config.lua` defaults may grow new
-  keys but must remain backwards-compatible with users who set up
-  with M2-era config tables.
+  keys (e.g. `compose.reference_section`, `keymaps.pending_buffer.*`)
+  but must remain backwards-compatible with users who set up with
+  M2-era config tables.
 
 Integration branch: `main`. Worktrees fork from current `HEAD` per
 ccx convention.
@@ -90,5 +93,49 @@ ccx convention.
   started_at: "2026-05-14T13:06:32Z"
   finished_at: "2026-05-14T13:45:23Z"
   exit_status: approved
+  notes: |
+
+- id: T-4
+  title: "Compose scaffold reference — status options + progress hint + assignee candidates"
+  scope:
+    include:
+      - lua/redmine/ui/compose.lua
+      - lua/redmine/cli.lua
+      - lua/redmine/config.lua
+      - tests/run_e2e.lua
+    exclude: []
+  status: pending
+  priority: high
+  depends_on: []
+  brief: .ccx/tasks/T-4.md
+  attempts: 0
+  worktree: null
+  branch: null
+  worker_pid: null
+  started_at: null
+  finished_at: null
+  exit_status: null
+  notes: |
+
+- id: T-5
+  title: "Pending posts buffer + :Rm fallback + :Rmpost extensions"
+  scope:
+    include:
+      - lua/redmine/ui/pending.lua
+      - lua/redmine/commands.lua
+      - lua/redmine/config.lua
+      - tests/run_e2e.lua
+    exclude: []
+  status: pending
+  priority: high
+  depends_on: []
+  brief: .ccx/tasks/T-5.md
+  attempts: 0
+  worktree: null
+  branch: null
+  worker_pid: null
+  started_at: null
+  finished_at: null
+  exit_status: null
   notes: |
 ```
