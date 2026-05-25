@@ -37,6 +37,15 @@ local defaults = {
       post_no_confirm = '<leader>P',
       discard         = '<leader>x',
     },
+    pending_buffer = {
+      open     = '<CR>',
+      post     = 'p',
+      post_all = 'P',
+      discard  = 'd',
+      refresh  = 'r',
+      close    = 'q',
+      inbox    = 'i',
+    },
   },
 
   compose = {
