@@ -131,26 +131,55 @@ local function refresh_context(bufnr, task_md)
   vim.api.nvim_buf_set_lines(bufnr, 0, -1, false, kept)
 end
 
-local function post_buffer(bufnr, opts)
+---Post a draft file directly. Shared by `:Rmpost` (compose buffer flow) and
+---the pending buffer's `p` / `P` / `:Rmpost <id> | all` paths.
+---@param path string  absolute path to the draft file on disk
+---@param opts table|nil  {no_confirm = bool, on_done = fun(ok: bool, info: table|nil)}
+function M.post_file(path, opts)
   opts = opts or {}
   local cfg = config.get().compose or {}
-  if vim.api.nvim_get_option_value('modified', { buf = bufnr }) then
-    -- Save first so the file we hand to the CLI matches the buffer.
-    vim.api.nvim_buf_call(bufnr, function() vim.cmd('silent! write') end)
+
+  local function finish(ok, info)
+    if opts.on_done then opts.on_done(ok, info) end
   end
 
-  local file = vim.api.nvim_buf_get_name(bufnr)
-  if file == '' or vim.fn.filereadable(file) == 0 then
-    notify('compose 버퍼에 연결된 파일이 없습니다', vim.log.levels.ERROR)
+  if not path or path == '' or vim.fn.filereadable(path) == 0 then
+    notify(('draft 파일을 찾을 수 없습니다: %s'):format(path or ''), vim.log.levels.ERROR)
+    finish(false)
     return
   end
 
-  local text = table.concat(vim.api.nvim_buf_get_lines(bufnr, 0, -1, false), '\n')
+  -- If the draft is loaded as a modified buffer elsewhere (e.g. user typed
+  -- into the compose buffer in one split and ran :Rmpost <id> in another),
+  -- save it first so the CLI reads the live content instead of stale bytes.
+  local canon_path = vim.fn.fnamemodify(path, ':p')
+  for _, bnr in ipairs(vim.api.nvim_list_bufs()) do
+    if vim.api.nvim_buf_is_loaded(bnr) then
+      local bname = vim.api.nvim_buf_get_name(bnr)
+      if bname ~= '' and vim.fn.fnamemodify(bname, ':p') == canon_path then
+        if vim.api.nvim_get_option_value('modified', { buf = bnr }) then
+          vim.api.nvim_buf_call(bnr, function() vim.cmd('silent! write') end)
+        end
+        break
+      end
+    end
+  end
+
+  local f = io.open(path, 'r')
+  if not f then
+    notify(('draft 파일 읽기 실패: %s'):format(path), vim.log.levels.ERROR)
+    finish(false)
+    return
+  end
+  local text = f:read('*a') or ''
+  f:close()
+
   local composed = fm_mod.split(text, { cutoff_pattern = cfg.cutoff_pattern })
 
   local issue_id = tonumber(composed.fm.id)
   if not issue_id then
-    notify('frontmatter id 가 없거나 잘못되었습니다', vim.log.levels.ERROR)
+    notify(('frontmatter id 가 없거나 잘못되었습니다: %s'):format(path), vim.log.levels.ERROR)
+    finish(false)
     return
   end
 
@@ -160,12 +189,16 @@ local function post_buffer(bufnr, opts)
                   or (composed.fm.assignee and composed.fm.assignee ~= '')
                   or (composed.fm.time and composed.fm.time ~= '')
   if not has_body and not has_changes then
-    notify('본문도 비고 frontmatter 변경도 없음 — post 안 함', vim.log.levels.WARN)
+    notify(('본문도 비고 frontmatter 변경도 없음 — post 안 함 (%s)'):format(path),
+      vim.log.levels.WARN)
+    finish(false)
     return
   end
 
   local function do_post()
-    cli.run({ 'post', '--file', file }, {}, function(stdout)
+    cli.run({ 'post', '--file', path }, {
+      on_error = function() finish(false) end,
+    }, function(stdout)
       local ok, parsed = pcall(vim.json.decode, stdout)
       local actions_str = (ok and parsed and parsed.actions) and table.concat(parsed.actions, ', ') or ''
       notify(('#%d post 완료%s'):format(issue_id, actions_str ~= '' and (' — ' .. actions_str) or ''))
@@ -173,19 +206,30 @@ local function post_buffer(bufnr, opts)
       -- after_post handling
       local after = cfg.after_post or 'archive'
       if after == 'delete' then
-        pcall(os.remove, file)
+        pcall(os.remove, path)
       elseif after == 'archive' then
         -- Default layout: {worktree}/.redmine/{drafts,posted}/. file lives in
         -- .../drafts/ → archive sits next to drafts under the same parent.
-        local archive_dir = vim.fn.fnamemodify(file, ':h:h') .. '/posted'
+        local archive_dir = vim.fn.fnamemodify(path, ':h:h') .. '/posted'
         vim.fn.mkdir(archive_dir, 'p')
-        local target = archive_dir .. '/' .. vim.fn.fnamemodify(file, ':t')
-        pcall(os.rename, file, target)
+        local target = archive_dir .. '/' .. vim.fn.fnamemodify(path, ':t')
+        pcall(os.rename, path, target)
       end
-      pcall(vim.api.nvim_buf_delete, bufnr, { force = true })
+
+      -- Wipe any compose buffer still pointing at the (now-archived) draft so
+      -- a stray `:w` doesn't recreate the file and reintroduce it to pending.
+      for _, bnr in ipairs(vim.api.nvim_list_bufs()) do
+        if vim.api.nvim_buf_is_loaded(bnr) then
+          local bname = vim.api.nvim_buf_get_name(bnr)
+          if bname ~= '' and vim.fn.fnamemodify(bname, ':p') == canon_path then
+            pcall(vim.api.nvim_buf_delete, bnr, { force = true })
+          end
+        end
+      end
 
       -- Refresh issue buffer if open.
       pcall(function() require('redmine.ui.issue').refresh(issue_id) end)
+      finish(true, { issue_id = issue_id })
     end)
   end
 
@@ -215,8 +259,21 @@ local function post_buffer(bufnr, opts)
       do_post()
     else
       notify('post 취소')
+      finish(false)
     end
   end)
+end
+
+local function post_buffer(bufnr, opts)
+  opts = opts or {}
+  local file = vim.api.nvim_buf_get_name(bufnr)
+  if file == '' then
+    notify('compose 버퍼에 연결된 파일이 없습니다', vim.log.levels.ERROR)
+    return
+  end
+  -- post_file saves any modified buffer at the same path, archives the file,
+  -- and wipes matching loaded buffers on success — so we just delegate.
+  M.post_file(file, { no_confirm = opts.no_confirm })
 end
 
 local function bind_keys(bufnr)
@@ -240,7 +297,108 @@ local function bind_keys(bufnr)
   end, 'redmine: discard draft')
 end
 
----Open (or focus) the compose buffer for an issue.
+---Open (or focus) the compose buffer at an explicit draft file path. Splits
+---out of `M.open(id)` so callers that already know the path (e.g. the pending
+---buffer entries, captured under one cwd) don't re-resolve via CLI under the
+---current cwd — that would target the wrong worktree.
+---@param file string  absolute path to the draft file
+---@param id   integer issue id (used to fetch task / suggest / reference data)
+function M.open_path(file, id)
+  if not file or file == '' then
+    notify('draft 경로가 비었습니다', vim.log.levels.ERROR)
+    return
+  end
+
+  vim.fn.mkdir(vim.fn.fnamemodify(file, ':h'), 'p')
+
+  local existed = vim.fn.filereadable(file) == 1
+
+  -- Focus if already open.
+  local bufnr = vim.fn.bufnr(file)
+  if bufnr ~= -1 and vim.api.nvim_buf_is_loaded(bufnr) then
+    for _, win in ipairs(vim.api.nvim_list_wins()) do
+      if vim.api.nvim_win_get_buf(win) == bufnr then
+        vim.api.nvim_set_current_win(win)
+        return
+      end
+    end
+  end
+
+  -- Open via configured strategy.
+  local strategy = config.get().ui.compose_strategy or 'vsplit'
+  if strategy == 'vsplit' then vim.cmd('vsplit ' .. vim.fn.fnameescape(file))
+  elseif strategy == 'tab' then vim.cmd('tabedit ' .. vim.fn.fnameescape(file))
+  elseif strategy == 'split' then vim.cmd('split ' .. vim.fn.fnameescape(file))
+  else vim.cmd('edit ' .. vim.fn.fnameescape(file)) end
+
+  bufnr = vim.api.nvim_get_current_buf()
+  vim.api.nvim_set_option_value('filetype', 'redmine-compose', { buf = bufnr })
+  bind_keys(bufnr)
+
+  -- File already existed → just freshen the context portion below cutoff.
+  if existed then
+    cli.run({ 'fetch', tostring(id), '--format=task' }, {}, function(task_md)
+      if not vim.api.nvim_buf_is_valid(bufnr) then return end
+      refresh_context(bufnr, task_md or '')
+      vim.api.nvim_buf_call(bufnr, function() vim.cmd('silent! write') end)
+    end)
+    return
+  end
+
+  -- New draft: kick off task + suggest in parallel; build scaffold when
+  -- everything arrives. When the Reference section is enabled (default)
+  -- we also fetch issue JSON + meta statuses to populate it. Both
+  -- reference fetches use run_allow_fail so a network glitch yields a
+  -- short error placeholder in the section rather than aborting scaffold.
+  local cfg = config.get().compose or {}
+  local ref_enabled = cfg.reference_section ~= false
+  local task_md, suggested
+  local issue_json, statuses_json
+  local issue_done, statuses_done = not ref_enabled, not ref_enabled
+
+  local function maybe_finish()
+    if task_md == nil or suggested == nil then return end
+    if not issue_done or not statuses_done then return end
+    if not vim.api.nvim_buf_is_valid(bufnr) then return end
+    local ref_lines = ref_enabled and build_reference_lines(statuses_json, issue_json) or nil
+    vim.api.nvim_buf_set_lines(bufnr, 0, -1, false,
+      scaffold(id, task_md, suggested, ref_lines))
+    -- Move cursor onto the empty body line (line 7 in the scaffold).
+    local win = vim.fn.bufwinid(bufnr)
+    if win ~= -1 then pcall(vim.api.nvim_win_set_cursor, win, { 7, 0 }) end
+    vim.api.nvim_buf_call(bufnr, function() vim.cmd('silent! write') end)
+  end
+
+  cli.run({ 'fetch', tostring(id), '--format=task' }, {}, function(out)
+    task_md = out or ''
+    maybe_finish()
+  end)
+  cli.run_allow_fail({ 'suggest', 'assignee', '--id', tostring(id) }, function(_, out, _)
+    suggested = vim.trim(out or '')
+    maybe_finish()
+  end)
+  if ref_enabled then
+    cli.run_allow_fail({ 'fetch', tostring(id), '--format=json' }, function(code, out, _)
+      if code == 0 then
+        local ok, decoded = pcall(vim.json.decode, out)
+        if ok then issue_json = decoded end
+      end
+      issue_done = true
+      maybe_finish()
+    end)
+    cli.run_allow_fail({ 'meta', 'statuses', '--issue', tostring(id), '--json' }, function(code, out, _)
+      if code == 0 then
+        local ok, decoded = pcall(vim.json.decode, out)
+        if ok then statuses_json = decoded end
+      end
+      statuses_done = true
+      maybe_finish()
+    end)
+  end
+end
+
+---Open (or focus) the compose buffer for an issue. Resolves the draft path
+---via the CLI (cwd-dependent) and then defers to `M.open_path`.
 ---@param id integer
 function M.open(id)
   cli.run({ 'path', 'draft', '--id', tostring(id) }, {}, function(path_stdout)
@@ -249,93 +407,7 @@ function M.open(id)
       notify('draft 경로 결정 실패', vim.log.levels.ERROR)
       return
     end
-    -- mkdir parent
-    vim.fn.mkdir(vim.fn.fnamemodify(file, ':h'), 'p')
-
-    local existed = vim.fn.filereadable(file) == 1
-
-    -- Focus if already open.
-    local bufnr = vim.fn.bufnr(file)
-    if bufnr ~= -1 and vim.api.nvim_buf_is_loaded(bufnr) then
-      for _, win in ipairs(vim.api.nvim_list_wins()) do
-        if vim.api.nvim_win_get_buf(win) == bufnr then
-          vim.api.nvim_set_current_win(win)
-          return
-        end
-      end
-    end
-
-    -- Open via configured strategy.
-    local strategy = config.get().ui.compose_strategy or 'vsplit'
-    if strategy == 'vsplit' then vim.cmd('vsplit ' .. vim.fn.fnameescape(file))
-    elseif strategy == 'tab' then vim.cmd('tabedit ' .. vim.fn.fnameescape(file))
-    elseif strategy == 'split' then vim.cmd('split ' .. vim.fn.fnameescape(file))
-    else vim.cmd('edit ' .. vim.fn.fnameescape(file)) end
-
-    bufnr = vim.api.nvim_get_current_buf()
-    vim.api.nvim_set_option_value('filetype', 'redmine-compose', { buf = bufnr })
-    bind_keys(bufnr)
-
-    -- File already existed → just freshen the context portion below cutoff.
-    if existed then
-      cli.run({ 'fetch', tostring(id), '--format=task' }, {}, function(task_md)
-        if not vim.api.nvim_buf_is_valid(bufnr) then return end
-        refresh_context(bufnr, task_md or '')
-        vim.api.nvim_buf_call(bufnr, function() vim.cmd('silent! write') end)
-      end)
-      return
-    end
-
-    -- New draft: kick off task + suggest in parallel; build scaffold when
-    -- everything arrives. When the Reference section is enabled (default)
-    -- we also fetch issue JSON + meta statuses to populate it. Both
-    -- reference fetches use run_allow_fail so a network glitch yields a
-    -- short error placeholder in the section rather than aborting scaffold.
-    local cfg = config.get().compose or {}
-    local ref_enabled = cfg.reference_section ~= false
-    local task_md, suggested
-    local issue_json, statuses_json
-    local issue_done, statuses_done = not ref_enabled, not ref_enabled
-
-    local function maybe_finish()
-      if task_md == nil or suggested == nil then return end
-      if not issue_done or not statuses_done then return end
-      if not vim.api.nvim_buf_is_valid(bufnr) then return end
-      local ref_lines = ref_enabled and build_reference_lines(statuses_json, issue_json) or nil
-      vim.api.nvim_buf_set_lines(bufnr, 0, -1, false,
-        scaffold(id, task_md, suggested, ref_lines))
-      -- Move cursor onto the empty body line (line 7 in the scaffold).
-      local win = vim.fn.bufwinid(bufnr)
-      if win ~= -1 then pcall(vim.api.nvim_win_set_cursor, win, { 7, 0 }) end
-      vim.api.nvim_buf_call(bufnr, function() vim.cmd('silent! write') end)
-    end
-
-    cli.run({ 'fetch', tostring(id), '--format=task' }, {}, function(out)
-      task_md = out or ''
-      maybe_finish()
-    end)
-    cli.run_allow_fail({ 'suggest', 'assignee', '--id', tostring(id) }, function(_, out, _)
-      suggested = vim.trim(out or '')
-      maybe_finish()
-    end)
-    if ref_enabled then
-      cli.run_allow_fail({ 'fetch', tostring(id), '--format=json' }, function(code, out, _)
-        if code == 0 then
-          local ok, decoded = pcall(vim.json.decode, out)
-          if ok then issue_json = decoded end
-        end
-        issue_done = true
-        maybe_finish()
-      end)
-      cli.run_allow_fail({ 'meta', 'statuses', '--issue', tostring(id), '--json' }, function(code, out, _)
-        if code == 0 then
-          local ok, decoded = pcall(vim.json.decode, out)
-          if ok then statuses_json = decoded end
-        end
-        statuses_done = true
-        maybe_finish()
-      end)
-    end
+    M.open_path(file, id)
   end)
 end
 

@@ -64,8 +64,54 @@ local function rm_command(args)
     return
   end
   require('redmine.detect').current(function(id)
-    if id then open_issue(id) else open_inbox() end
+    if id then
+      open_issue(id)
+    else
+      require('redmine.ui.pending').open()
+    end
   end)
+end
+
+local function complete_post(arg_lead)
+  local out = {}
+  local function maybe(s)
+    if s:sub(1, #arg_lead) == arg_lead then table.insert(out, s) end
+  end
+  maybe('all')
+  for _, id in ipairs(require('redmine.ui.pending').draft_ids()) do
+    maybe(id)
+  end
+  return out
+end
+
+local function rmpost_command(args)
+  local arg = vim.trim(args.args or '')
+  if arg == '' then
+    local bufnr = vim.api.nvim_get_current_buf()
+    local ft = vim.api.nvim_get_option_value('filetype', { buf = bufnr })
+    if ft == 'redmine-compose' then
+      require('redmine.ui.compose').post_current()
+    elseif ft == 'redmine-pending' then
+      -- Pin to the listing's snapshot so a cwd drift doesn't reroute.
+      require('redmine.ui.pending').post_listed()
+    else
+      vim.notify(
+        ':Rmpost — compose 또는 pending 버퍼에서 호출하거나, :Rmpost <id> / :Rmpost all 사용',
+        vim.log.levels.ERROR, { title = 'redmine' })
+    end
+    return
+  end
+  if arg == 'all' then
+    require('redmine.ui.pending').post_all()
+    return
+  end
+  local id = tonumber(arg)
+  if not id then
+    vim.notify(':Rmpost 인자는 issue id 또는 all 이어야 합니다 (받은 값: ' .. arg .. ')',
+      vim.log.levels.ERROR, { title = 'redmine' })
+    return
+  end
+  require('redmine.ui.pending').post_id(id)
 end
 
 function M.register()
@@ -80,9 +126,11 @@ function M.register()
     with_id(args, 'Rmcomment', function(id) require('redmine.ui.compose').open(id) end)
   end, { nargs = '?', desc = 'redmine: compose comment' })
 
-  vim.api.nvim_create_user_command('Rmpost', function()
-    require('redmine.ui.compose').post_current()
-  end, { desc = 'redmine: post current compose buffer' })
+  vim.api.nvim_create_user_command('Rmpost', rmpost_command, {
+    nargs = '?',
+    complete = complete_post,
+    desc = 'redmine: post compose buffer / draft by id / all',
+  })
 
   vim.api.nvim_create_user_command('Rmstatus', function(args)
     with_id(args, 'Rmstatus', function(id, rest)

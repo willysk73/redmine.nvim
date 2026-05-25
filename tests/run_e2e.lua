@@ -110,19 +110,19 @@ do
   record('bad id does not open issue buffer', vim.fn.bufnr('redmine://issue/abc') == -1)
 end
 
--- ---------- Test 4: :Rm with no arg + no detect → falls back to inbox ----------
+-- ---------- Test 4 (T-5): :Rm with no arg + no detect → falls back to pending ----------
 do
   -- We're not in a git repo or with .redmine here, so detect should fail.
-  -- Close existing inbox first to verify it's reopened.
-  local existing = vim.fn.bufnr('redmine://inbox')
+  -- Close existing pending first to verify it's (re)opened.
+  local existing = vim.fn.bufnr('redmine://pending')
   if existing ~= -1 then
     pcall(vim.api.nvim_buf_delete, existing, { force = true })
   end
   vim.cmd('Rm')
   local ok = wait_until(function()
-    return vim.fn.bufnr('redmine://inbox') ~= -1
+    return vim.fn.bufnr('redmine://pending') ~= -1
   end, 8000)
-  record(':Rm fallback opens inbox', ok)
+  record(':Rm fallback opens pending', ok)
 end
 
 -- ---------- Test 5: compose+post round trip on issue #1 ------------------
@@ -625,6 +625,142 @@ do
     return true
   end, 8000)
   record('T-4: compose.reference_section=false suppresses 가능한 status section', ok_off)
+end
+
+-- ---------- T-5 helpers ----------
+local function t5_drafts_dir()
+  local proc = vim.system({ 'redmine', 'path', 'draft', '--id', '1' }, { text = true }):wait(4000)
+  return vim.fn.fnamemodify(vim.trim(proc.stdout or ''), ':h')
+end
+
+local function t5_clean_dir(dir)
+  if not dir or dir == '' or vim.fn.isdirectory(dir) == 0 then return end
+  for _, p in ipairs(vim.fn.globpath(dir, '*', false, true)) do
+    pcall(os.remove, p)
+  end
+end
+
+local function t5_clean_drafts_and_posted()
+  local d = t5_drafts_dir()
+  t5_clean_dir(d)
+  t5_clean_dir(vim.fn.fnamemodify(d, ':h') .. '/posted')
+end
+
+-- ---------- Test 13 (T-5): pending buffer empty-state header ----------
+do
+  t5_clean_drafts_and_posted()
+  pcall(vim.api.nvim_buf_delete, vim.fn.bufnr('redmine://pending'), { force = true })
+  vim.cmd('Rm')
+  local ok = wait_until(function()
+    local b = vim.fn.bufnr('redmine://pending')
+    if b == -1 then return false end
+    local first = vim.api.nvim_buf_get_lines(b, 0, 1, false)[1] or ''
+    return first:match('^Pending Redmine posts —') ~= nil
+  end, 8000)
+  local b = vim.fn.bufnr('redmine://pending')
+  local first = b ~= -1 and (vim.api.nvim_buf_get_lines(b, 0, 1, false)[1] or '') or '(no buf)'
+  record('T-5: pending buffer first line matches header', ok, first)
+end
+
+-- ---------- Test 14 (T-5): seed 2 drafts, render both with change-summary ----------
+do
+  local d = t5_drafts_dir()
+  t5_clean_dir(d)
+  vim.fn.mkdir(d, 'p')
+  -- #1: a status change → change-summary should include 'status: Resolved'.
+  do
+    local f = assert(io.open(d .. '/comment-draft-1.md', 'w'))
+    f:write('---\nid: 1\nstatus: Resolved\n---\n')
+    f:close()
+  end
+  -- Slight gap so mtimes are distinct → deterministic sort order.
+  vim.uv.sleep(50)
+  -- #2: empty fields + a body line → 'no field change' summary, but postable
+  -- (Test 16's `:Rmpost all` requires it to be postable).
+  do
+    local f = assert(io.open(d .. '/comment-draft-2.md', 'w'))
+    f:write('---\nid: 2\nstatus:\nassignee:\n---\n\nT-5 e2e: post-all 검증\n')
+    f:close()
+  end
+
+  pcall(vim.api.nvim_buf_delete, vim.fn.bufnr('redmine://pending'), { force = true })
+  vim.cmd('Rm')
+
+  local rendered = wait_until(function()
+    local b = vim.fn.bufnr('redmine://pending')
+    if b == -1 then return false end
+    local lines = vim.api.nvim_buf_get_lines(b, 0, -1, false)
+    local saw1, saw2 = false, false
+    for _, ln in ipairs(lines) do
+      if ln:match('^#1%s') then saw1 = true end
+      if ln:match('^#2%s') then saw2 = true end
+    end
+    return saw1 and saw2
+  end, 8000)
+  record('T-5: pending buffer renders #1 and #2 blocks', rendered)
+
+  local b = vim.fn.bufnr('redmine://pending')
+  local lines = b ~= -1 and vim.api.nvim_buf_get_lines(b, 0, -1, false) or {}
+  dump('/tmp/redmine_e2e_pending.txt', lines)
+  local saw_status_resolved = false
+  for i, ln in ipairs(lines) do
+    if ln:match('^#1%s') then
+      for j = i, math.min(i + 2, #lines) do
+        if lines[j]:match('status:%s*Resolved') then saw_status_resolved = true; break end
+      end
+      break
+    end
+  end
+  record("T-5: #1's block contains status: Resolved", saw_status_resolved)
+end
+
+-- ---------- Test 15 (T-5): post #1 via pending action moves file to posted/ ----------
+do
+  -- Reset issue #1 to a state where status: Resolved is a real delta.
+  vim.system({ 'redmine', 'update', '1', '--status', 'New' }, { text = true }):wait(8000)
+
+  local b = vim.fn.bufnr('redmine://pending')
+  local lines = vim.api.nvim_buf_get_lines(b, 0, -1, false)
+  local lnum
+  for i, ln in ipairs(lines) do
+    if ln:match('^#1%s') then lnum = i; break end
+  end
+  local win = vim.fn.bufwinid(b)
+  if win ~= -1 and lnum then
+    pcall(vim.api.nvim_win_set_cursor, win, { lnum, 0 })
+  end
+  require('redmine.ui.pending').post_under_cursor()
+
+  local d = t5_drafts_dir()
+  local posted = vim.fn.fnamemodify(d, ':h') .. '/posted'
+  local moved = wait_until(function()
+    return vim.fn.filereadable(d .. '/comment-draft-1.md') == 0
+       and vim.fn.filereadable(posted .. '/comment-draft-1.md') == 1
+  end, 8000)
+  record('T-5: p posts #1 — file moves drafts/ → posted/', moved)
+
+  local gone = wait_until(function()
+    if not vim.api.nvim_buf_is_valid(b) then return false end
+    local ll = vim.api.nvim_buf_get_lines(b, 0, -1, false)
+    for _, ln in ipairs(ll) do
+      if ln:match('^#1%s') then return false end
+    end
+    return true
+  end, 8000)
+  record('T-5: #1 disappears from pending buffer after post', gone)
+end
+
+-- ---------- Test 16 (T-5): :Rmpost all from a non-pending buffer ----------
+do
+  -- Move focus away from pending to exercise the "non-buffer context" path.
+  vim.cmd('enew')
+  vim.cmd('Rmpost all')
+
+  local d = t5_drafts_dir()
+  local empty = wait_until(function()
+    return #vim.fn.globpath(d, 'comment-draft-*.md', false, true) == 0
+  end, 8000)
+  record('T-5: :Rmpost all empties the drafts dir', empty)
 end
 
 -- ---------- Report ------------------
