@@ -13,14 +13,76 @@ local function notify(msg, level)
   vim.notify(msg, level or vim.log.levels.INFO, { title = 'redmine' })
 end
 
+-- Build the read-only Reference section that sits BELOW the cutoff. The CLI
+-- post path already ignores everything past the cutoff (see fm_mod.split's
+-- body_end), so this is pure documentation context for the user.
+-- `statuses` / `issue` are nil when the underlying fetch failed; we surface
+-- a short hint in that case rather than dropping the section entirely.
+local function build_reference_lines(statuses, issue)
+  local out = {}
+
+  table.insert(out, '## 가능한 status')
+  if statuses == nil then
+    table.insert(out, '_(status fetch failed — :checkhealth redmine 확인)_')
+  elseif #statuses == 0 then
+    table.insert(out, '_(no statuses returned — check Redmine config)_')
+  else
+    for _, s in ipairs(statuses) do
+      local suffix = s.is_closed and '*' or ''
+      table.insert(out, ('- %s: %s%s'):format(tostring(s.id), tostring(s.name), suffix))
+    end
+  end
+  table.insert(out, '')
+
+  table.insert(out, '## progress')
+  table.insert(out, '0 ~ 100 정수. UI 관례: 0/10/20/.../100.')
+  table.insert(out, '예: progress: 50')
+  table.insert(out, '')
+
+  table.insert(out, '## assignee 후보')
+  if issue then
+    local author_name = (issue.author or {}).name
+    if author_name then
+      table.insert(out, '- 작성자: ' .. author_name)
+    end
+    local seen, participants = {}, {}
+    if author_name then seen[author_name] = true end
+    for _, j in ipairs(issue.journals or {}) do
+      local n = (j.user or {}).name
+      if n and not seen[n] then
+        seen[n] = true
+        table.insert(participants, n)
+      end
+    end
+    if #participants > 0 then
+      table.insert(out, '- 참여자: ' .. table.concat(participants, ', '))
+    end
+    -- `redmine meta members --project` accepts both numeric id and string
+    -- identifier; /issues/X.json only carries the id+name, so we prefer
+    -- identifier when present (e.g. via API include) and fall back to id.
+    local proj = issue.project or {}
+    local key = proj.identifier or (proj.id ~= nil and tostring(proj.id)) or '<project>'
+    table.insert(out, '- 전체 멤버: redmine meta members --project ' .. key)
+  else
+    table.insert(out, '_(assignee 후보 fetch failed — :checkhealth redmine 확인)_')
+  end
+  table.insert(out, '- 빈 값 / none / unassign / - → 할당 해제')
+
+  return out
+end
+
 ---Build initial draft scaffold (frontmatter + empty body + cutoff + task context).
 ---@param id integer
 ---@param task_md string  output of `redmine fetch <id> --format=task`
+---@param suggested_assignee string|nil
+---@param reference_lines string[]|nil  Reference section lines (statuses /
+---       progress / assignee candidates). Inserted BELOW the cutoff so the
+---       post path stays byte-identical to pre-T-4 when reference is off.
 -- Scaffold lists only the common-path fields. CLI still accepts
 -- `progress:` / `time:` if the user adds them by hand — useful occasionally
 -- but uncluttered as the default. Single PUT bundles everything into one
 -- journal entry regardless of how many fields are filled.
-local function scaffold(id, task_md, suggested_assignee)
+local function scaffold(id, task_md, suggested_assignee, reference_lines)
   local lines = {
     '---',
     'id: ' .. tostring(id),
@@ -33,6 +95,10 @@ local function scaffold(id, task_md, suggested_assignee)
     CUTOFF_LINE,
     '',
   }
+  if reference_lines and #reference_lines > 0 then
+    for _, ln in ipairs(reference_lines) do table.insert(lines, ln) end
+    table.insert(lines, '')
+  end
   for _, ln in ipairs(vim.split(task_md, '\n', { plain = true })) do
     table.insert(lines, ln)
   end
@@ -220,12 +286,24 @@ function M.open(id)
       return
     end
 
-    -- New draft: kick off task + suggest in parallel; build scaffold when both arrive.
+    -- New draft: kick off task + suggest in parallel; build scaffold when
+    -- everything arrives. When the Reference section is enabled (default)
+    -- we also fetch issue JSON + meta statuses to populate it. Both
+    -- reference fetches use run_allow_fail so a network glitch yields a
+    -- short error placeholder in the section rather than aborting scaffold.
+    local cfg = config.get().compose or {}
+    local ref_enabled = cfg.reference_section ~= false
     local task_md, suggested
+    local issue_json, statuses_json
+    local issue_done, statuses_done = not ref_enabled, not ref_enabled
+
     local function maybe_finish()
       if task_md == nil or suggested == nil then return end
+      if not issue_done or not statuses_done then return end
       if not vim.api.nvim_buf_is_valid(bufnr) then return end
-      vim.api.nvim_buf_set_lines(bufnr, 0, -1, false, scaffold(id, task_md, suggested))
+      local ref_lines = ref_enabled and build_reference_lines(statuses_json, issue_json) or nil
+      vim.api.nvim_buf_set_lines(bufnr, 0, -1, false,
+        scaffold(id, task_md, suggested, ref_lines))
       -- Move cursor onto the empty body line (line 7 in the scaffold).
       local win = vim.fn.bufwinid(bufnr)
       if win ~= -1 then pcall(vim.api.nvim_win_set_cursor, win, { 7, 0 }) end
@@ -240,6 +318,24 @@ function M.open(id)
       suggested = vim.trim(out or '')
       maybe_finish()
     end)
+    if ref_enabled then
+      cli.run_allow_fail({ 'fetch', tostring(id), '--format=json' }, function(code, out, _)
+        if code == 0 then
+          local ok, decoded = pcall(vim.json.decode, out)
+          if ok then issue_json = decoded end
+        end
+        issue_done = true
+        maybe_finish()
+      end)
+      cli.run_allow_fail({ 'meta', 'statuses', '--issue', tostring(id), '--json' }, function(code, out, _)
+        if code == 0 then
+          local ok, decoded = pcall(vim.json.decode, out)
+          if ok then statuses_json = decoded end
+        end
+        statuses_done = true
+        maybe_finish()
+      end)
+    end
   end)
 end
 

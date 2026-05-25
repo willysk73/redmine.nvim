@@ -549,6 +549,84 @@ do
     ('Δhits=%d'):format(cli_mod.cache_stats().hits - before.hits))
 end
 
+-- ---------- Test 12: compose scaffold contains Reference section (T-4) ----------
+do
+  local id = 1
+
+  local function close_compose_bufs()
+    for _, b in ipairs(vim.api.nvim_list_bufs()) do
+      if vim.api.nvim_buf_is_loaded(b) and
+         vim.api.nvim_get_option_value('filetype', { buf = b }) == 'redmine-compose' then
+        pcall(vim.api.nvim_buf_delete, b, { force = true })
+      end
+    end
+  end
+  local function clear_draft()
+    local proc = vim.system({ 'redmine', 'path', 'draft', '--id', tostring(id) },
+                            { text = true }):wait(4000)
+    local p = vim.trim(proc.stdout or '')
+    if p ~= '' then pcall(os.remove, p) end
+  end
+  local function find_compose_lines()
+    for _, b in ipairs(vim.api.nvim_list_bufs()) do
+      if vim.api.nvim_buf_is_loaded(b) and
+         vim.api.nvim_get_option_value('filetype', { buf = b }) == 'redmine-compose' then
+        local lines = vim.api.nvim_buf_get_lines(b, 0, -1, false)
+        if lines[1] == '---' and lines[2] == ('id: ' .. tostring(id)) then
+          return lines
+        end
+      end
+    end
+  end
+
+  close_compose_bufs()
+  clear_draft()
+  vim.cmd('Rmcomment ' .. tostring(id))
+
+  local ok_status = wait_until(function()
+    local lines = find_compose_lines()
+    if not lines then return false end
+    local saw_header, saw_row = false, false
+    for _, ln in ipairs(lines) do
+      if ln == '## 가능한 status' then saw_header = true
+      elseif saw_header and ln:match('^%-%s%d+:%s%S') then saw_row = true end
+    end
+    return saw_header and saw_row
+  end, 8000)
+  record('T-4: scaffold has 가능한 status section with at least one id:name row', ok_status)
+
+  local ok_assignee = wait_until(function()
+    local lines = find_compose_lines()
+    if not lines then return false end
+    local saw_header, saw_author = false, false
+    for _, ln in ipairs(lines) do
+      if ln == '## assignee 후보' then saw_header = true
+      elseif saw_header and ln:match('^%-%s작성자:%s%S') then saw_author = true end
+    end
+    return saw_header and saw_author
+  end, 8000)
+  record('T-4: scaffold has assignee 후보 section with 작성자 line', ok_assignee)
+
+  -- Toggle the knob off and re-open: the new sections must vanish.
+  close_compose_bufs()
+  clear_draft()
+  require('redmine.config').setup({
+    compose = { confirm_post = false, after_post = 'archive', reference_section = false },
+  })
+  vim.cmd('Rmcomment ' .. tostring(id))
+
+  local ok_off = wait_until(function()
+    local lines = find_compose_lines()
+    if not lines then return false end
+    if not (lines[1] == '---' and #lines >= 6) then return false end
+    for _, ln in ipairs(lines) do
+      if ln == '## 가능한 status' then return false end
+    end
+    return true
+  end, 8000)
+  record('T-4: compose.reference_section=false suppresses 가능한 status section', ok_off)
+end
+
 -- ---------- Report ------------------
 local pass = 0
 for _, r in ipairs(results) do if r.ok then pass = pass + 1 end end
