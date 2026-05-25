@@ -126,15 +126,15 @@ ccx convention.
       - lua/redmine/config.lua
       - tests/run_e2e.lua
     exclude: []
-  status: pending
+  status: assigned
   priority: high
   depends_on: []
   brief: .ccx/tasks/T-5.md
-  attempts: 0
-  worktree: null
-  branch: null
+  attempts: 1
+  worktree: /home/will/Repositories/redmine.nvim-T-5
+  branch: ccx/T-5
   worker_pid: null
-  started_at: null
+  started_at: "2026-05-25T08:46:37Z"
   finished_at: null
   exit_status: null
   notes: |
