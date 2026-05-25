@@ -40,9 +40,14 @@ local defaults = {
   },
 
   compose = {
-    cutoff_pattern = '^<!%-%-.*━━━.*%-%->%s*$',
-    confirm_post   = true,
-    after_post     = 'archive',
+    cutoff_pattern    = '^<!%-%-.*━━━.*%-%->%s*$',
+    confirm_post      = true,
+    after_post        = 'archive',
+    -- Append a Reference section (statuses / progress / assignee candidates)
+    -- below the cutoff line in `:Rmcomment` scaffolds. Read-only context for
+    -- the user; ignored by the CLI post path because it sits below the
+    -- cutoff. See lua/redmine/ui/compose.lua scaffold().
+    reference_section = true,
   },
 
   inbox = {
