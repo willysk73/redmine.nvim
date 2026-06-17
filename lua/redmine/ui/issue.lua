@@ -5,6 +5,8 @@ local util = require('redmine.util')
 
 local M = {}
 
+local generations = {}
+
 local function buf_name(id)
   return ('redmine://issue/%d'):format(id)
 end
@@ -143,31 +145,39 @@ end
 
 local function render(bufnr, id, opts)
   opts = opts or {}
+  generations[id] = (generations[id] or 0) + 1
+  local gen = generations[id]
   util.set_lines(bufnr, { ('⏳ Fetching #%d ...'):format(id) })
 
   local args = { 'fetch', tostring(id), '--format=display' }
   local run_opts = { cache = { key = 'issue', hard = opts.hard or false } }
 
   cli.run(args, run_opts, function(stdout)
-    if not vim.api.nvim_buf_is_valid(bufnr) then return end
+    if gen ~= generations[id] then return end
+    -- See inbox.lua: a tree-style plugin can replace bufnr mid-flight.
+    local target = vim.api.nvim_buf_is_valid(bufnr) and bufnr or util.find_buf_by_name(buf_name(id))
+    if not target or target == -1 or not vim.api.nvim_buf_is_valid(target) then return end
+    -- If replaced, the new buffer has no keymaps — re-apply.
+    if target ~= bufnr then
+      util.lock_buffer(target, 'redmine-issue')
+      bind_keys(target, id)
+    end
     local lines = vim.split(stdout, '\n', { plain = true })
     -- Trim a single trailing blank line if present (CLI emits a final \n).
     if #lines > 0 and lines[#lines] == '' then
       table.remove(lines)
     end
-    util.set_lines(bufnr, lines)
-    apply_initial_folds(bufnr, lines)
+    util.set_lines(target, lines)
+    apply_initial_folds(target, lines)
   end)
 end
 
 function M.open(id)
   local strategy = config.get().ui.open_strategy or 'split'
-  local _, bufnr, created = util.open_buffer(buf_name(id), strategy)
-
-  if created then
-    util.lock_buffer(bufnr, 'redmine-issue')
-    bind_keys(bufnr, id)
-  end
+  local _, bufnr, _ = util.open_buffer(buf_name(id), strategy)
+  -- Always re-apply; idempotent and survives nvim-tree wipe-and-recreate.
+  util.lock_buffer(bufnr, 'redmine-issue')
+  bind_keys(bufnr, id)
   render(bufnr, id)
 end
 
@@ -178,7 +188,7 @@ end
 function M.refresh(id, opts)
   if opts == nil then opts = { hard = true } end
   local name = buf_name(id)
-  local bufnr = vim.fn.bufnr(name)
+  local bufnr = util.find_buf_by_name(name)
   if bufnr == -1 then return end
   render(bufnr, id, opts)
 end

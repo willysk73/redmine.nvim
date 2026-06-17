@@ -367,12 +367,11 @@ end
 
 function M.open()
   local strategy = (config.get().ui or {}).pending_strategy or 'edit'
-  local _, bufnr, created = util.open_buffer(BUF_NAME, strategy)
+  local _, bufnr, _ = util.open_buffer(BUF_NAME, strategy)
   state.bufnr = bufnr
-  if created then
-    util.lock_buffer(bufnr, 'redmine-pending')
-    bind_keys(bufnr)
-  end
+  -- Always re-apply; idempotent and survives nvim-tree wipe-and-recreate.
+  util.lock_buffer(bufnr, 'redmine-pending')
+  bind_keys(bufnr)
   M.refresh(bufnr)
 end
 
